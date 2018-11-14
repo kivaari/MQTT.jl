@@ -1,7 +1,13 @@
 module MQTT
 
-import Base: connect, ReentrantLock, lock, unlock
-using Base.Threads, Base.Dates
+import Base: ReentrantLock, lock, unlock
+import Sockets: connect
+
+using Base.Threads
+using Dates
+using Distributed
+using Random
+using Sockets
 
 include("utils.jl")
 include("client.jl")

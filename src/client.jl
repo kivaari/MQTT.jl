@@ -44,11 +44,11 @@ struct Message
     payload::Array{UInt8}
 
     function Message(qos::QOS, topic::String, payload...)
-        return Message(false, convert(UInt8, qos), false, topic, payload...)
+        return Message(false, UInt8(qos), false, topic, payload...)
     end
 
     function Message(dup::Bool, qos::QOS, retain::Bool, topic::String, payload...)
-        return Message(dup, convert(UInt8, qos), retain, topic, payload...)
+        return Message(dup, UInt8(qos), retain, topic, payload...)
     end
 
     function Message(dup::Bool, qos::UInt8, retain::Bool, topic::String, payload...)
@@ -154,7 +154,7 @@ function handle_publish(client::Client, s::IO, cmd::UInt8, flags::UInt8)
     end
 
     payload = take!(s)
-    @schedule client.on_msg(topic, payload)
+    @async client.on_msg(topic, payload)
 end
 
 function handle_ack(client::Client, s::IO, cmd::UInt8, flags::UInt8)
@@ -274,7 +274,7 @@ function keep_alive_loop(client::Client)
     else
       check_interval = client.keep_alive / 2
     end
-    timer = Timer(0, check_interval)
+    timer = Timer(0, interval = check_interval)
 
     while true
       if time() - client.last_sent[] >= client.keep_alive || time() - client.last_received[] >= client.keep_alive
@@ -339,14 +339,14 @@ end
        will::Message=Message(false, 0x00, false, "", Array{UInt8}()),
        clean_session::Bool=true)
 
-Connects the `Client` instance to the specified broker. 
+Connects the `Client` instance to the specified broker.
 Returns a `Future` object that contains a session_present bit from the broker on success and an exception on failure.
 
 # Arguments
 - `keep_alive::Int64=0`: Time in seconds to wait before sending a ping to the broker if no other packets are being sent or received.
 - `client_id::String=randstring(8)`: The id of the client.
 - `user::User=User("", "")`: The MQTT authentication.
-- `will::Message=Message(false, 0x00, false, "", Array{UInt8}())`: The MQTT will to send to all other clients when this client disconnects.  
+- `will::Message=Message(false, 0x00, false, "", Array{UInt8}())`: The MQTT will to send to all other clients when this client disconnects.
 - `clean_session::Bool=true`: Flag to resume a session with the broker if present.
 """
 function connect_async(client::Client, host::AbstractString, port::Integer=1883;
@@ -363,11 +363,11 @@ function connect_async(client::Client, host::AbstractString, port::Integer=1883;
         error("Could not convert keep_alive to UInt16")
     end
     client.socket = connect(host, port)
-    @schedule write_loop(client)
-    @schedule read_loop(client)
+    @async write_loop(client)
+    @async read_loop(client)
 
     if client.keep_alive > 0x0000
-      @schedule keep_alive_loop(client)
+      @async keep_alive_loop(client)
     end
 
     #TODO reset client on clean_session = true
@@ -415,22 +415,24 @@ end
         will::Message=Message(false, 0x00, false, "", Array{UInt8}()),
         clean_session::Bool=true)
 
-Connects the `Client` instance to the specified broker. 
+Connects the `Client` instance to the specified broker.
 Waits until the connect is done. Returns the session_present bit from the broker on success and an exception on failure.
 
 # Arguments
 - `keep_alive::Int64=0`: Time in seconds to wait before sending a ping to the broker if no other packets are being sent or received.
 - `client_id::String=randstring(8)`: The id of the client.
 - `user::User=User("", "")`: The MQTT authentication.
-- `will::Message=Message(false, 0x00, false, "", Array{UInt8}())`: The MQTT will to send to all other clients when this client disconnects.  
+- `will::Message=Message(false, 0x00, false, "", Array{UInt8}())`: The MQTT will to send to all other clients when this client disconnects.
 - `clean_session::Bool=true`: Flag to resume a session with the broker if present.
 """
 connect(client::Client, host::AbstractString, port::Integer=1883;
-keep_alive::Int64=0,
-client_id::String=randstring(8),
-user::User=User("", ""),
-will::Message=Message(false, 0x00, false, "", Array{UInt8}()),
-clean_session::Bool=true) = get(connect_async(client, host, port, keep_alive=keep_alive, client_id=client_id, user=user, will=will, clean_session=clean_session))
+        keep_alive::Int64=0,
+        client_id::String=randstring(8),
+        user::User=User("", ""),
+        will::Message=Message(false, 0x00, false, "", Array{UInt8}(undef)),
+        clean_session::Bool=true) =
+    get(connect_async(client, host, port, keep_alive=keep_alive, client_id=client_id,
+                      user=user, will=will, clean_session=clean_session))
 
 """
     disconnect(client::Client)
@@ -466,7 +468,7 @@ end
 """
     subscribe(client::Client, topics::Tuple{String, QOS}...)
 
-Waits until the subscribe is fully acknowledged. Returns the actually received QOS levels for each topic on success. 
+Waits until the subscribe is fully acknowledged. Returns the actually received QOS levels for each topic on success.
 Contains an exception on failure.
 """
 subscribe(client::Client, topics::Tuple{String, QOS}...) = get(subscribe_async(client, topics...))
@@ -475,7 +477,7 @@ subscribe(client::Client, topics::Tuple{String, QOS}...) = get(subscribe_async(c
     unsubscribe_async(client::Client, topics::String...)
 
 Unsubscribes the `Client` instance from the supplied topic names.
-Returns a `Future` object that contains `nothing` on success and an exception on failure. 
+Returns a `Future` object that contains `nothing` on success and an exception on failure.
 """
 function unsubscribe_async(client::Client, topics::String...)
     future = Future()
@@ -487,7 +489,7 @@ function unsubscribe_async(client::Client, topics::String...)
 end
 
 """
-    unsubscribe(client::Client, topics::String...) 
+    unsubscribe(client::Client, topics::String...)
 
 Unsubscribes the `Client` instance from the supplied topic names.
 Waits until the unsubscribe is fully acknowledged. Returns `nothing` on success and an exception on failure.
@@ -497,7 +499,7 @@ unsubscribe(client::Client, topics::String...) = get(unsubscribe_async(client, t
 """
    publish_async(client::Client, message::Message)
 
-Publishes the message. Returns a `Future` object that contains `nothing` on success and an exception on failure. 
+Publishes the message. Returns a `Future` object that contains `nothing` on success and an exception on failure.
 """
 function publish_async(client::Client, message::Message)
     future = Future()
@@ -524,12 +526,11 @@ end
        qos::QOS=QOS_0,
        retain::Bool=false)
 
-Pulishes a message with the specified parameters. Returns a `Future` object that contains `nothing` on success and an exception on failure.  
+Pulishes a message with the specified parameters. Returns a `Future` object that contains `nothing` on success and an exception on failure.
 """
 publish_async(client::Client, topic::String, payload...;
-    dup::Bool=false,
-    qos::QOS=QOS_0,
-    retain::Bool=false) = publish_async(client, Message(dup, convert(UInt8, qos), retain, topic, payload...))
+              dup::Bool=false, qos::QOS=QOS_0, retain::Bool=false) =
+    publish_async(client, Message(dup, UInt8(qos), retain, topic, payload...))
 
 """
    publish(client::Client, topic::String, payload...;
@@ -547,7 +548,7 @@ publish(client::Client, topic::String, payload...;
 # Helper method to check if it is possible to subscribe to a topic
 function filter_wildcard_len_check(sub)
     #Regex: matches any valid topic, + and # are not in allowed in strings, + is only allowed as a single symbol between two /, # is only allowed at the end
-    if !(ismatch(r"(^[^#+]+|[+])(/([^#+]+|[+]))*(/#)?$", sub)) || length(sub) > 65535
+    if !(occursin(r"(^[^#+]+|[+])(/([^#+]+|[+]))*(/#)?$", sub)) || length(sub) > 65535
         throw(MQTTException("Invalid topic"))
     end
 end
@@ -557,7 +558,7 @@ function topic_wildcard_len_check(topic)
     # Search for + or # in a topic. Return MQTT_ERR_INVAL if found.
      # Also returns MQTT_ERR_INVAL if the topic string is too long.
      # Returns MQTT_ERR_SUCCESS if everything is fine.
-    if !(ismatch(r"^[^#+]+$", topic)) || length(topic) > 65535
+    if !(occursin(r"^[^#+]+$", topic)) || length(topic) > 65535
         throw(MQTTException("Invalid topic"))
     end
 end

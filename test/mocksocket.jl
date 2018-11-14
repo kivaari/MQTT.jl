@@ -121,6 +121,6 @@ end
 
 function connect(host::AbstractString, port::Integer)
     th = TestFileHandler(Channel{UInt8}(256), Channel{UInt8}(256), Condition(), Condition(), false)
-    put_from_file(th, "data/input/connack.dat")
+    put_from_file(th, joinpath(datadir, "input", "connack.dat"))
     return th
 end
